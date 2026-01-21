@@ -13,7 +13,8 @@ import numpy as np
 
 # optional torch/ultralytics imports done in loader
 import torch
-
+from threading import Lock
+model_lock = Lock()
 # CONFIG
 MODEL_PATH = os.environ.get("MODEL_PATH", "models/best.pt")
 DEVICE = "cuda" if os.environ.get("USE_CUDA", "1") == "1" and torch.cuda.is_available() else "cpu"
@@ -29,6 +30,13 @@ CORS(app, origins=os.environ.get("ALLOWED_ORIGINS", "*").split(","))
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("safety-backend")
+
+try:
+    font = ImageFont.truetype(FONT_PATH, size=32)
+    print("FONT LOADED:", FONT_PATH)
+except Exception as e:
+    print("Font load error:", e)
+    font = ImageFont.load_default()
 
 # Model loader
 def load_model(path: str):
@@ -69,16 +77,13 @@ from PIL import ImageFont
 BASE_DIR = os.path.dirname(__file__)  # folder where this file lives
 FONT_PATH = os.path.join(BASE_DIR, "fonts", "DejaVuSans-Bold.ttf")
 
+
+
 # drawing helper
 def draw_detections(image: Image.Image, detections: List[Dict[str, Any]]) -> Image.Image:
     draw = ImageDraw.Draw(image)
     # Load font    
-    try:
-        font = ImageFont.truetype(FONT_PATH, size=32)
-        print("FONT LOADED:", FONT_PATH)
-    except Exception as e:
-        print("Font load error:", e)
-        font = ImageFont.load_default()
+    font = FONT
 
     for det in detections:
         x1, y1, x2, y2 = det["bbox"]
@@ -119,24 +124,25 @@ def run_inference_pil(image: Image.Image, conf_thresh=CONF_THRESHOLD, iou_thresh
 
     # ultralytics path
     try:
+        with model_lock:
         # ultralytics supports `predict` or direct call
-        results = MODEL.predict(source=img_np, conf=conf_thresh, iou=iou_thresh, verbose=False) if hasattr(MODEL, "predict") else MODEL(img_np, conf=conf_thresh, iou=iou_thresh)
-        res0 = results[0] if isinstance(results, (list, tuple)) else results
-        boxes = getattr(res0, "boxes", None)
-        if boxes is not None:
-            xyxy = boxes.xyxy.cpu().numpy()
-            confs = boxes.conf.cpu().numpy()
-            cls_ids = boxes.cls.cpu().numpy().astype(int)
-            dets = []
-            for (x1,y1,x2,y2), conf, cid in zip(xyxy, confs, cls_ids):
-                if conf < conf_thresh: continue
-                dets.append({
-                    "class_id": int(cid),
-                    "class_name": CLASS_NAMES[int(cid)] if int(cid) < len(CLASS_NAMES) else str(int(cid)),
-                    "confidence": float(conf),
-                    "bbox": [float(x1), float(y1), float(x2), float(y2)]
-                })
-            return dets
+            results = MODEL.predict(source=img_np,conf=conf_thresh,iou=iou_thresh,imgsz=640,device="cpu",verbose=False) if hasattr(MODEL, "predict") else MODEL(img_np, conf=conf_thresh, iou=iou_thresh)
+            res0 = results[0] if isinstance(results, (list, tuple)) else results
+            boxes = getattr(res0, "boxes", None)
+            if boxes is not None:
+                xyxy = boxes.xyxy.cpu().numpy()
+                confs = boxes.conf.cpu().numpy()
+                cls_ids = boxes.cls.cpu().numpy().astype(int)
+                dets = []
+                for (x1,y1,x2,y2), conf, cid in zip(xyxy, confs, cls_ids):
+                    if conf < conf_thresh: continue
+                    dets.append({
+                        "class_id": int(cid),
+                        "class_name": CLASS_NAMES[int(cid)] if int(cid) < len(CLASS_NAMES) else str(int(cid)),
+                        "confidence": float(conf),
+                        "bbox": [float(x1), float(y1), float(x2), float(y2)]
+                    })
+                return dets
     except Exception as e:
         log.debug("Ultralytics inference failed: %s", e)
 
@@ -199,10 +205,7 @@ def detect():
             # annotated image
             annotated = image.copy()
             annotated = draw_detections(annotated, detections)
-            buf = io.BytesIO()
-            annotated.save(buf, format="PNG")
-            encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
-            data_uri = f"data:image/png;base64,{encoded}"
+            
 
             results_out.append({
                 "filename": filename,
