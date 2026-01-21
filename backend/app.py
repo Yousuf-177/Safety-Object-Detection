@@ -21,6 +21,8 @@ DEVICE = "cuda" if os.environ.get("USE_CUDA", "1") == "1" and torch.cuda.is_avai
 CONF_THRESHOLD = float(os.environ.get("CONF_THRESHOLD", 0.25))
 IOU_THRESHOLD = float(os.environ.get("IOU_THRESHOLD", 0.45))
 CLASS_NAMES = ["OxygenTank","NitrogenTank","FirstAidBox","FireAlarm","SafetySwitchPanel","EmergencyPhone","FireExtinguisher"]
+BASE_DIR = os.path.dirname(__file__)  # folder where this file lives
+FONT_PATH = os.path.join(BASE_DIR, "fonts", "DejaVuSans-Bold.ttf")
 
 # App
 app = Flask(__name__)
@@ -74,8 +76,7 @@ log.info("Model loaded and ready.")
 import os
 from PIL import ImageFont
 
-BASE_DIR = os.path.dirname(__file__)  # folder where this file lives
-FONT_PATH = os.path.join(BASE_DIR, "fonts", "DejaVuSans-Bold.ttf")
+
 
 
 
